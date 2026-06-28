@@ -107,18 +107,23 @@ src/
 │   ├── wearable/               # Health Connect parsing (ported from Peri, adapted)
 │   └── ai/                     # Generic AI service + prompts
 │
-├── repositories/               # Repository interfaces (contracts before implementations)
+├── repositories/               # Repository interfaces + mock implementations
 │   ├── IProfileRepository.ts
 │   ├── IEntryRepository.ts
 │   ├── IDayRepository.ts
-│   └── index.ts
+│   ├── index.ts
+│   └── mock/                   # In-memory implementations for tests/Storybook
+│       ├── MockProfileRepository.ts
+│       ├── MockEntryRepository.ts
+│       ├── MockDayRepository.ts
+│       └── index.ts
 │
-├── store/                      # Zustand stores (not yet created)
+├── store/                      # Zustand stores (Milestone 3)
 │   ├── useUserStore.ts
 │   ├── useDayStore.ts
 │   └── useSyncStore.ts
 │
-├── hooks/                      # Custom React hooks (not yet created)
+├── hooks/                      # Custom React hooks (Milestone 3)
 │   ├── useAuth.ts
 │   ├── useProfile.ts
 │   ├── useDayData.ts
@@ -267,11 +272,6 @@ lastComputedAt
 - `adjust.ts` — `DayActivity` → `AdjustedTargets` with calorie cap
 - `totals.ts` — `sumItems`, `sumEntries`, `roundTotals`
 
-**Tests**
-- `src/lib/nutrition/__tests__/bmr.test.ts` — 5 tests, all passing
-- `src/lib/nutrition/__tests__/totals.test.ts` — 4 tests, all passing
-- **9/9 tests passing, 0 type errors**
-
 **Minimal app shell**
 - `src/app/layout.tsx` — root layout with Inter font, PWA meta
 - `src/app/page.tsx` — redirects to `/today`
@@ -298,9 +298,11 @@ lastComputedAt
 **Public assets**
 - `public/sql-wasm.wasm` — copied from `node_modules/sql.js/dist/` (648KB); required by Health Connect parser
 
-**Tests** (33 passing, 0 type errors)
-- `src/lib/firestore/__tests__/mappers.test.ts` — 10 tests covering round-trips and field flattening
-- `src/repositories/__tests__/mockRepositories.test.ts` — 19 tests covering full repository contracts: create/read/update/delete, totals derivation from items, day recompute triggering, copySlot, setActivity with adjusted targets
+**Tests — 33 passing, 0 type errors (verified 2026-06-28)**
+- `src/lib/nutrition/__tests__/bmr.test.ts` — 5 tests: BMR formula, TDEE multipliers
+- `src/lib/nutrition/__tests__/totals.test.ts` — 4 tests: sumItems, sumEntries, roundTotals
+- `src/lib/firestore/__tests__/mappers.test.ts` — 10 tests: round-trips for all three doc types; verifies targets flattened to top-level fields, adjustedTargets flattened, optional fields preserved/omitted
+- `src/repositories/__tests__/mockRepositories.test.ts` — 14 tests: EntryRepository full CRUD, computed totals always derived from items (not passable by callers), day recompute triggered on every mutation, idempotent delete, copySlot with date change; DayRepository getRange date filtering, setActivity computing adjusted targets; ProfileRepository create/get/update without clobber/setLastSyncAt
 
 ---
 
