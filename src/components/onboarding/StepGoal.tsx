@@ -11,6 +11,14 @@ const GOALS: { value: Goal; label: string; description: string }[] = [
   { value: 'muscle_gain',  label: 'Build muscle',    description: 'Calorie surplus with high protein' },
 ];
 
+function CheckIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="shrink-0 text-brand-500">
+      <path d="M3 8l4 4 6-6" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+
 interface StepGoalProps {
   defaultValue?: Goal;
   onNext: (data: { goal: Goal }) => void;
@@ -34,19 +42,28 @@ export function StepGoal({ defaultValue, onNext, onBack }: StepGoalProps) {
             type="button"
             onClick={() => setGoal(g.value)}
             className={cn(
-              'flex flex-col items-start gap-0.5 w-full px-5 py-4 rounded-card border transition-colors text-left',
+              'flex items-center gap-3 w-full px-5 py-4 rounded-card border transition-colors text-left',
               goal === g.value
                 ? 'bg-brand-50 border-brand-500'
-                : 'bg-surface-card border-surface-input',
+                : 'bg-surface-card border-surface-input hover:border-brand-300',
             )}
           >
-            <span className={cn('text-base font-semibold', goal === g.value ? 'text-brand-600' : 'text-text-primary')}>
-              {g.label}
-            </span>
-            <span className="text-sm text-text-secondary">{g.description}</span>
+            <div className="flex-1 flex flex-col gap-0.5">
+              <span className={cn('text-base font-semibold', goal === g.value ? 'text-brand-600' : 'text-text-primary')}>
+                {g.label}
+              </span>
+              <span className="text-sm text-text-secondary">{g.description}</span>
+            </div>
+            {goal === g.value && <CheckIcon />}
           </button>
         ))}
       </div>
+
+      {!goal && (
+        <p className="text-xs text-text-disabled text-center -mt-2">
+          Select a goal to continue
+        </p>
+      )}
 
       <div className="flex gap-3">
         <Button type="button" variant="secondary" onClick={onBack} fullWidth>

@@ -66,6 +66,8 @@ export function VoiceLogger({ onResult, onBack, onTypeInstead }: VoiceLoggerProp
   const recognitionRef     = useRef<SR | null>(null);
   const finalTranscriptRef = useRef('');
   const mountedRef         = useRef(true);
+  // Set before calling abort() from onerror so onend doesn't overwrite the error message.
+  const errorAbortedRef    = useRef(false);
 
   useEffect(() => {
     if (!getSRCtor()) setState('unsupported');
@@ -101,6 +103,7 @@ export function VoiceLogger({ onResult, onBack, onTypeInstead }: VoiceLoggerProp
     recognition.lang           = 'en-US';
 
     finalTranscriptRef.current = '';
+    errorAbortedRef.current    = false;
     setTranscript('');
     setState('listening');
 
@@ -119,22 +122,22 @@ export function VoiceLogger({ onResult, onBack, onTypeInstead }: VoiceLoggerProp
 
     recognition.onend = () => {
       if (!mountedRef.current) return;
+      // onerror already set a specific error message; don't overwrite it.
+      if (errorAbortedRef.current) return;
       const text = finalTranscriptRef.current.trim();
       if (text) {
         analyzeTranscript(text);
       } else {
-        // Only show error if we're still in listening state (not already processing)
-        if (mountedRef.current) {
-          setState('error');
-          setErrorMsg('No speech detected. Tap the mic and try again.');
-        }
+        setState('error');
+        setErrorMsg('No speech detected. Tap the mic and try again.');
       }
     };
 
     recognition.onerror = (event: SRErrorEvent) => {
       if (!mountedRef.current) return;
+      if (event.error === 'aborted') return; // fired by stopListening() — onend handles it
+      errorAbortedRef.current = true;
       recognition.abort();
-      if (event.error === 'aborted') return; // user stopped — handled via onend
       setState('error');
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
         setErrorMsg('Microphone permission was denied. Please allow microphone access in your browser settings and try again.');
@@ -156,11 +159,12 @@ export function VoiceLogger({ onResult, onBack, onTypeInstead }: VoiceLoggerProp
   }
 
   function reset() {
+    errorAbortedRef.current    = false;
+    finalTranscriptRef.current = '';
     recognitionRef.current?.abort();
     setState('idle');
     setTranscript('');
     setErrorMsg('');
-    finalTranscriptRef.current = '';
   }
 
   // ── Unsupported ───────────────────────────────────────────────────────────

@@ -12,6 +12,14 @@ const ACTIVITY_OPTIONS: { value: ActivityLevel; label: string; description: stri
   { value: 'very_active',        label: 'Very active',        description: 'Hard exercise 6–7 days/week' },
 ];
 
+function CheckIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="shrink-0 text-brand-500">
+      <path d="M3 8l4 4 6-6" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+
 interface StepActivityData {
   activityLevel:       ActivityLevel;
   weeklyTrainingDays:  number;
@@ -24,7 +32,7 @@ interface StepActivityProps {
 }
 
 export function StepActivity({ defaultValues, onNext, onBack }: StepActivityProps) {
-  const [level, setLevel]             = useState<ActivityLevel | undefined>(defaultValues?.activityLevel);
+  const [level, setLevel]               = useState<ActivityLevel | undefined>(defaultValues?.activityLevel);
   const [trainingDays, setTrainingDays] = useState(defaultValues?.weeklyTrainingDays ?? 0);
 
   function handleNext() {
@@ -46,22 +54,26 @@ export function StepActivity({ defaultValues, onNext, onBack }: StepActivityProp
             type="button"
             onClick={() => setLevel(o.value)}
             className={cn(
-              'flex flex-col items-start gap-0.5 w-full px-4 py-3 rounded-card border transition-colors text-left',
+              'flex items-center gap-3 w-full px-4 py-3 rounded-card border transition-colors text-left',
               level === o.value
                 ? 'bg-brand-50 border-brand-500'
-                : 'bg-surface-card border-surface-input',
+                : 'bg-surface-card border-surface-input hover:border-brand-300',
             )}
           >
-            <span className={cn('text-sm font-semibold', level === o.value ? 'text-brand-600' : 'text-text-primary')}>
-              {o.label}
-            </span>
-            <span className="text-xs text-text-secondary">{o.description}</span>
+            <div className="flex-1 flex flex-col gap-0.5">
+              <span className={cn('text-sm font-semibold', level === o.value ? 'text-brand-600' : 'text-text-primary')}>
+                {o.label}
+              </span>
+              <span className="text-xs text-text-secondary">{o.description}</span>
+            </div>
+            {level === o.value && <CheckIcon />}
           </button>
         ))}
       </div>
 
       <Slider
         label="Weekly training days"
+        showValue
         min={0}
         max={7}
         step={1}
@@ -69,6 +81,12 @@ export function StepActivity({ defaultValues, onNext, onBack }: StepActivityProp
         onChange={(e) => setTrainingDays(parseInt(e.target.value))}
         formatValue={(v) => `${v} day${v === 1 ? '' : 's'}`}
       />
+
+      {!level && (
+        <p className="text-xs text-text-disabled text-center -mt-2">
+          Select an activity level to continue
+        </p>
+      )}
 
       <div className="flex gap-3">
         <Button type="button" variant="secondary" onClick={onBack} fullWidth>
