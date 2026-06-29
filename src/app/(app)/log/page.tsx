@@ -9,6 +9,7 @@ import {
   LogMethodPicker,
   PhotoLogger,
   TextLogger,
+  VoiceLogger,
   BarcodeLogger,
   MealConfirmCard,
   MealEditCard,
@@ -21,7 +22,7 @@ import type { MealAnalysisServiceResult } from '@/lib/ai/service';
 import type { MealSlot, BarcodeProduct, Entry, FoodItem } from '@/types';
 
 type LogPhase = 'pick' | 'capture' | 'confirm' | 'saving';
-type LogMethod = 'photo' | 'text' | 'barcode';
+type LogMethod = 'photo' | 'text' | 'voice' | 'barcode';
 
 function LogContent() {
   const router        = useRouter();
@@ -61,6 +62,13 @@ function LogContent() {
 
   function handlePickMethod(m: LogMethod) {
     setMethod(m);
+    setPhase('capture');
+    setError(null);
+  }
+
+  // Switch to text entry without going back through the picker
+  function handleTypeInstead() {
+    setMethod('text');
     setPhase('capture');
     setError(null);
   }
@@ -153,7 +161,10 @@ function LogContent() {
   const pageTitle =
     editingEntry        ? 'Edit meal' :
     phase === 'pick'    ? 'Log Meal' :
-    phase === 'capture' ? (method === 'photo' ? 'Take a photo' : method === 'text' ? 'Describe it' : 'Scan barcode') :
+    phase === 'capture' && method === 'photo'  ? 'Take a photo' :
+    phase === 'capture' && method === 'text'   ? 'Describe it' :
+    phase === 'capture' && method === 'voice'  ? 'Speak your meal' :
+    phase === 'capture' && method === 'barcode'? 'Scan barcode' :
     phase === 'confirm' ? 'Confirm meal' :
     'Saving…';
 
@@ -176,6 +187,15 @@ function LogContent() {
 
           {phase === 'capture' && method === 'text' && (
             <TextLogger onResult={handleResult} onError={setError} onBack={handleBack} />
+          )}
+
+          {phase === 'capture' && method === 'voice' && (
+            <VoiceLogger
+              onResult={handleResult}
+              onError={setError}
+              onBack={handleBack}
+              onTypeInstead={handleTypeInstead}
+            />
           )}
 
           {phase === 'capture' && method === 'barcode' && (

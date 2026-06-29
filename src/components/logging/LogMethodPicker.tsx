@@ -2,7 +2,7 @@
 
 import { cn } from '@/lib/utils';
 
-type LogMethod = 'photo' | 'text' | 'barcode';
+type LogMethod = 'photo' | 'text' | 'voice' | 'barcode';
 
 interface MethodOption {
   id:          LogMethod;
@@ -20,6 +20,11 @@ const METHODS: MethodOption[] = [
     id:          'text',
     label:       'Describe it',
     description: 'Type what you ate and get an estimate',
+  },
+  {
+    id:          'voice',
+    label:       'Speak',
+    description: 'Say what you ate and let AI parse it',
   },
   {
     id:          'barcode',
