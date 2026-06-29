@@ -11,13 +11,14 @@ import {
   TextLogger,
   BarcodeLogger,
   MealConfirmCard,
+  MealEditCard,
 } from '@/components/logging';
 import { useEntryActions } from '@/hooks/useEntryActions';
 import { useDayStore } from '@/store/useDayStore';
 import { useUserStore } from '@/store/useUserStore';
 import { entryRepository } from '@/lib/firestore';
 import type { MealAnalysisServiceResult } from '@/lib/ai/service';
-import type { MealSlot, BarcodeProduct, Entry } from '@/types';
+import type { MealSlot, BarcodeProduct, Entry, FoodItem } from '@/types';
 
 type LogPhase = 'pick' | 'capture' | 'confirm' | 'saving';
 type LogMethod = 'photo' | 'text' | 'barcode';
@@ -38,7 +39,7 @@ function LogContent() {
   const [editingEntry, setEditingEntry] = useState<Entry | null>(null);
   const [error, setError]               = useState<string | null>(null);
 
-  // Load existing entry when in edit mode
+  // Load existing entry when navigated to /log?edit=<id>
   useEffect(() => {
     if (!editId || !uid) return;
     entryRepository.getById(uid, editId).then((entry) => {
@@ -99,29 +100,22 @@ function LogContent() {
     setError(null);
   }
 
-  async function handleConfirm(slot: MealSlot | undefined) {
+  // New entry flow
+  async function handleConfirmNew(slot: MealSlot | undefined) {
     if (!result) return;
     setPhase('saving');
     setError(null);
     try {
-      if (editingEntry) {
-        await updateEntry(editingEntry.id, editingEntry.date, {
-          name:  result.name,
-          slot:  slot ?? editingEntry.slot,
-          items: result.items,
-        });
-      } else {
-        await createEntry({
-          type:        'meal',
-          slot:        slot ?? undefined,
-          name:        result.name,
-          date:        activeDate,
-          timestamp:   new Date().toISOString(),
-          items:       result.items,
-          inputMethod: method === 'barcode' ? 'barcode' : method === 'photo' ? 'photo' : 'text',
-          aiMeta:      result.aiMeta,
-        });
-      }
+      await createEntry({
+        type:        'meal',
+        slot:        slot ?? undefined,
+        name:        result.name,
+        date:        activeDate,
+        timestamp:   new Date().toISOString(),
+        items:       result.items,
+        inputMethod: method === 'barcode' ? 'barcode' : method === 'photo' ? 'photo' : 'text',
+        aiMeta:      result.aiMeta,
+      });
       router.replace('/today');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save entry. Please try again.');
@@ -129,11 +123,26 @@ function LogContent() {
     }
   }
 
-  function handleBack() {
-    if (editingEntry) {
+  // Edit entry flow — receives updated items from MealEditCard
+  async function handleConfirmEdit(slot: MealSlot | undefined, items: FoodItem[]) {
+    if (!editingEntry) return;
+    setPhase('saving');
+    setError(null);
+    try {
+      await updateEntry(editingEntry.id, editingEntry.date, {
+        name:  editingEntry.name,
+        slot:  slot ?? editingEntry.slot,
+        items,
+      });
       router.replace('/today');
-      return;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save changes. Please try again.');
+      setPhase('confirm');
     }
+  }
+
+  function handleBack() {
+    if (editingEntry) { router.replace('/today'); return; }
     if (phase === 'confirm' || phase === 'capture') {
       setPhase('pick');
       setMethod(null);
@@ -142,7 +151,7 @@ function LogContent() {
   }
 
   const pageTitle =
-    editingEntry    ? 'Edit meal' :
+    editingEntry        ? 'Edit meal' :
     phase === 'pick'    ? 'Log Meal' :
     phase === 'capture' ? (method === 'photo' ? 'Take a photo' : method === 'text' ? 'Describe it' : 'Scan barcode') :
     phase === 'confirm' ? 'Confirm meal' :
@@ -162,37 +171,36 @@ function LogContent() {
           )}
 
           {phase === 'capture' && method === 'photo' && (
-            <PhotoLogger
-              onResult={handleResult}
-              onError={setError}
-              onBack={handleBack}
-            />
+            <PhotoLogger onResult={handleResult} onError={setError} onBack={handleBack} />
           )}
 
           {phase === 'capture' && method === 'text' && (
-            <TextLogger
-              onResult={handleResult}
-              onError={setError}
-              onBack={handleBack}
-            />
+            <TextLogger onResult={handleResult} onError={setError} onBack={handleBack} />
           )}
 
           {phase === 'capture' && method === 'barcode' && (
-            <BarcodeLogger
-              onResult={handleBarcodeResult}
-              onError={setError}
-              onBack={handleBack}
+            <BarcodeLogger onResult={handleBarcodeResult} onError={setError} onBack={handleBack} />
+          )}
+
+          {/* Edit mode: full item editor */}
+          {(phase === 'confirm' || phase === 'saving') && result && editingEntry && (
+            <MealEditCard
+              result={result}
+              onConfirm={handleConfirmEdit}
+              onDiscard={handleBack}
+              isSaving={phase === 'saving'}
+              initialSlot={editingEntry.slot ?? undefined}
             />
           )}
 
-          {(phase === 'confirm' || phase === 'saving') && result && (
+          {/* New entry mode: read-only confirm + slot picker */}
+          {(phase === 'confirm' || phase === 'saving') && result && !editingEntry && (
             <MealConfirmCard
               result={result}
-              onConfirm={handleConfirm}
+              onConfirm={handleConfirmNew}
               onDiscard={handleBack}
               isSaving={phase === 'saving'}
-              initialSlot={editingEntry?.slot ?? preselectedSlot ?? undefined}
-              editMode={!!editingEntry}
+              initialSlot={preselectedSlot ?? undefined}
             />
           )}
         </div>

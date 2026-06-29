@@ -20,7 +20,6 @@ interface MealConfirmCardProps {
   onDiscard:    () => void;
   isSaving?:    boolean;
   initialSlot?: MealSlot;
-  editMode?:    boolean;
 }
 
 export function MealConfirmCard({
@@ -29,7 +28,6 @@ export function MealConfirmCard({
   onDiscard,
   isSaving = false,
   initialSlot,
-  editMode = false,
 }: MealConfirmCardProps) {
   const [selectedSlot, setSelectedSlot] = useState<MealSlot | undefined>(initialSlot);
 
@@ -80,7 +78,7 @@ export function MealConfirmCard({
       </Card>
 
       <div>
-        <p className="text-sm font-medium text-text-primary mb-2">{editMode ? 'Meal slot' : 'Log to meal'}</p>
+        <p className="text-sm font-medium text-text-primary mb-2">Log to meal</p>
         <div className="flex gap-2 flex-wrap">
           {SLOTS.map((slot) => (
             <Chip
@@ -101,10 +99,10 @@ export function MealConfirmCard({
           disabled={isSaving}
           fullWidth
         >
-          {isSaving ? 'Saving…' : editMode ? 'Save changes' : 'Log this meal'}
+          {isSaving ? 'Saving…' : 'Log this meal'}
         </Button>
         <Button variant="ghost" onClick={onDiscard} disabled={isSaving} fullWidth>
-          {editMode ? 'Discard changes' : 'Try again'}
+          Try again
         </Button>
       </div>
     </div>
