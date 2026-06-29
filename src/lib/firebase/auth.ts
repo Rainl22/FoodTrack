@@ -4,17 +4,24 @@ import {
   signInWithPopup,
   signOut as firebaseSignOut,
   onAuthStateChanged,
+  type Auth,
   type User,
 } from 'firebase/auth';
 import firebaseApp from './app';
 
 // Scopes requested at sign-in. Drive readonly is needed for Health Connect sync.
-// Requesting it at initial sign-in avoids a second auth prompt later.
 const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/drive.readonly',
 ];
 
-const auth = getAuth(firebaseApp);
+// Lazy singleton — getAuth calls app.getProvider() which fails if firebaseApp
+// is not a real initialized app. By deferring to first use we avoid running
+// this during Next.js SSR / static prerender of server-rendered pages.
+let _auth: Auth | null = null;
+function auth(): Auth {
+  if (!_auth) _auth = getAuth(firebaseApp);
+  return _auth;
+}
 
 function createGoogleProvider() {
   const provider = new GoogleAuthProvider();
@@ -22,16 +29,12 @@ function createGoogleProvider() {
   return provider;
 }
 
-/**
- * Open Google Sign-In popup and return the authenticated user plus
- * the Google OAuth access token (required for Drive API calls).
- */
 export async function signInWithGoogle(): Promise<{
   user: User;
   driveToken: string | null;
 }> {
   const provider = createGoogleProvider();
-  const credential = await signInWithPopup(auth, provider);
+  const credential = await signInWithPopup(auth(), provider);
   const googleCredential = GoogleAuthProvider.credentialFromResult(credential);
   return {
     user: credential.user,
@@ -39,28 +42,16 @@ export async function signInWithGoogle(): Promise<{
   };
 }
 
-/**
- * Sign out the current user.
- */
 export async function signOut(): Promise<void> {
-  await firebaseSignOut(auth);
+  await firebaseSignOut(auth());
 }
 
-/**
- * Subscribe to auth state changes.
- * Returns an unsubscribe function.
- */
 export function subscribeToAuthState(
   callback: (user: User | null) => void,
 ): () => void {
-  return onAuthStateChanged(auth, callback);
+  return onAuthStateChanged(auth(), callback);
 }
 
-/**
- * Get the currently authenticated user, or null.
- */
 export function getCurrentUser(): User | null {
-  return auth.currentUser;
+  return auth().currentUser;
 }
-
-export { auth };

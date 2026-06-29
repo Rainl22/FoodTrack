@@ -1,7 +1,6 @@
-import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 
-// Keys that must be present at build time and at runtime.
-// measurementId is optional (Analytics only).
+// Keys that must be present at build time. measurementId is optional (Analytics only).
 const REQUIRED_ENV_VARS = [
   'NEXT_PUBLIC_FIREBASE_API_KEY',
   'NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN',
@@ -32,16 +31,8 @@ function buildConfig() {
   };
 }
 
-function initFirebase(): FirebaseApp {
-  // During Next.js SSR / static prerender, this module is imported but Firebase
-  // is never actually called (auth subscription is inside useEffect; Firestore
-  // calls only happen in hooks). Skip initialization on the server to prevent
-  // spurious errors when env vars are available only at runtime.
-  if (typeof window === 'undefined') return {} as FirebaseApp;
+// initializeApp only stores config — no network calls. Safe to run on the server.
+// NEXT_PUBLIC_* vars are baked into the bundle at Netlify build time.
+const firebaseApp = getApps().length === 0 ? initializeApp(buildConfig()) : getApp();
 
-  if (getApps().length > 0) return getApp();
-  return initializeApp(buildConfig());
-}
-
-const firebaseApp = initFirebase();
 export default firebaseApp;
