@@ -38,3 +38,9 @@ next-env.d.ts
 
 # Testing
 coverage/
+
+# Firebase Data Connect (tutorial boilerplate, not used)
+dataconnect/
+
+# Duplicate/scratch docs
+CLAUDE_CONTEXT 2.md

@@ -1,5 +1,7 @@
 /**
- * Health Connect sync pipeline for FoodTrack.
+ * LEGACY / REFERENCE ONLY — not called by the active sync path (Milestone 6+).
+ * The active path uses: GoogleDriveClient → HealthConnectParser → HealthSyncService.
+ * Kept for reference. Safe to delete once the new pipeline is fully validated in production.
  *
  * Adapted from Peri's syncHealthConnect.ts. Changes:
  *   - Removed all Entry/Peri type references

@@ -1,8 +1,9 @@
 import type { NextConfig } from 'next';
+import path from 'path';
 import withPWA from '@ducanh2912/next-pwa';
 
 const nextConfig: NextConfig = {
-  outputFileTracingRoot: '/Users/piovella/Documents/AI projects/FoodTrack',
+  outputFileTracingRoot: path.resolve(__dirname),
   images: {
     remotePatterns: [
       {

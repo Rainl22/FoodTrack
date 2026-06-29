@@ -1,6 +1,8 @@
 # FoodTrack — Claude Context Document
 
 > **Protocol for new sessions:** Read this file first. Then inspect the repository with `find src -type f | sort` and `npx tsc --noEmit`. Verify this document matches the code. Update it if there is drift. Then continue from **Next Milestone**.
+>
+> **Permanent architectural source:** `ARCHITECTURE.md` in the project root describes system design, layering, component composition rules, health sync target architecture, and dependency direction. Read it when making architectural decisions. Update it only when the architecture changes — it is not a milestone log.
 
 ---
 
@@ -298,11 +300,131 @@ lastComputedAt
 **Public assets**
 - `public/sql-wasm.wasm` — copied from `node_modules/sql.js/dist/` (648KB); required by Health Connect parser
 
-**Tests — 33 passing, 0 type errors (verified 2026-06-28)**
+**Tests — 75 passing, 0 type errors (verified 2026-06-28 after M6)**
 - `src/lib/nutrition/__tests__/bmr.test.ts` — 5 tests: BMR formula, TDEE multipliers
 - `src/lib/nutrition/__tests__/totals.test.ts` — 4 tests: sumItems, sumEntries, roundTotals
 - `src/lib/firestore/__tests__/mappers.test.ts` — 10 tests: round-trips for all three doc types; verifies targets flattened to top-level fields, adjustedTargets flattened, optional fields preserved/omitted
 - `src/repositories/__tests__/mockRepositories.test.ts` — 14 tests: EntryRepository full CRUD, computed totals always derived from items (not passable by callers), day recompute triggered on every mutation, idempotent delete, copySlot with date change; DayRepository getRange date filtering, setActivity computing adjusted targets; ProfileRepository create/get/update without clobber/setLastSyncAt
+- `src/lib/ai/__tests__/mealAnalysis.test.ts` — 15 tests: Zod schema accepts/rejects AI responses, mapper converts snake_case to camelCase FoodItem, overallConfidence derived as lowest-item confidence, request builders set correct fields
+
+**AI service** (`src/lib/ai/`) — provider-agnostic architecture
+- `providers/IAIProvider.ts` — provider interface (`AIProviderRequest`, `AIProviderResponse`, `IAIProvider`)
+- `providers/AnthropicProvider.ts` — Anthropic SDK implementation; model defaulting to `claude-sonnet-4-6`
+- `prompts/mealAnalysis.ts` — system prompt, `buildPhotoRequest`, `buildTextRequest`, `mapResponse` (snake_case → FoodItem), `analyzeMealPhoto`, `analyzeMealText`; `MealAnalysisResult` type
+- `service.ts` — `AIService` class; dispatches by `AICapability`; assembles `AIMeta` from provider response; `handleRequest(AIRequest) → MealAnalysisServiceResult`
+- `src/app/api/ai/route.ts` — POST handler; validates with `AIRequestSchema`; Anthropic key server-side only; returns `{ ok, capability, result }`
+
+**Zustand stores**
+- `src/store/useUserStore.ts` — `status` ('loading'|'authenticated'|'unauthenticated'), `user`, `profile`, `driveToken` (runtime only, never persisted); `clear()` on sign-out (sets status='unauthenticated')
+- `src/store/useDayStore.ts` — `activeDate` (init: today), `entries`, `day`, `isLoading`, `error`
+- `src/store/useSyncStore.ts` — `SyncPhase` enum, `progress`, `lastSyncAt`, `error`, `reset()`
+
+**Hooks**
+- `src/hooks/useAuth.ts` — subscribes to `subscribeToAuthState`; sets `status`, populates/clears `useUserStore`; call once at app root
+- `src/hooks/useProfile.ts` — loads profile from `profileRepository` on mount; `saveProfile()` handles create vs update
+- `src/hooks/useDayData.ts` — loads entries + day aggregate for `activeDate`; re-fetches on uid or date change
+- `src/hooks/useHealthSync.ts` — reads `useUserStore` + `useSyncStore`; `startSync()` calls `healthSyncService.sync()`, handles token refresh via `signInWithGoogle()`, maps `HealthSyncPhase` → `SyncPhase`, classifies errors into user-readable messages
+- `src/hooks/useWeekData.ts` — loads last 7 days' `DayAggregate[]` from `dayRepository.getRange`; used by Today and Week screens
+- `src/hooks/useEntryActions.ts` — `createEntry(input)` and `deleteEntry(id, date)`; calls repository then refreshes store
+
+**Firestore config**
+- `firestore.rules` — path-based rule: `users/{uid}/**` gated on `request.auth.uid == uid`
+- `firestore.indexes.json` — two composite indexes: `(date ASC, timestamp ASC)` and `(date ASC, slot ASC)` on `entries`
+
+---
+
+**UI primitives** (`src/components/ui/`) — all pure, zero Firestore/Zustand coupling
+- `Button` — CVA variants: primary/secondary/ghost/danger; sizes sm/md/lg; fullWidth; 44px minimum tap target
+- `Card` — padding (none/sm/md/lg) + shadow (none/sm/default/md) variants; `rounded-card bg-surface-card`
+- `Input` — controlled; label, error, helper; `useId` for accessible IDs; `rounded-input bg-surface-input`
+- `Chip` — pill filter/tag; selected/unselected states; `aria-pressed`; `rounded-chip`
+- `Badge` — count or status; default/brand/success/warning/error variants; size sm/md/lg
+- `Avatar` — circular; image with initials fallback; size sm/md/lg/xl
+- `ProgressBar` — fill bar; accepts Tailwind `bg-*` class as `color` prop; animated variant
+- `Ring` — SVG donut segment; value/size/strokeWidth/color props; children slot for center content
+- `Slider` — styled `<input type="range">`; optional label + formatted value display
+- `BottomSheet` — controlled (open/onClose); `createPortal`; Escape key + body-scroll lock; drag handle
+- `Dialog` — controlled modal; `createPortal`; Escape key + backdrop click; focus management
+- `Spinner` — animated ring; size sm/md/lg/xl; color brand/white/muted; `role="status"`
+- `Toast` — notification card; severity info/success/warning/error; dismiss button; `role="alert"`
+- `Stepper` — dot progress indicator; current step widens; past steps tinted brand-300
+- `src/components/ui/index.ts` — barrel export for all primitives
+
+**Utility**
+- `src/lib/utils.ts` — `cn()` helper (clsx + tailwind-merge)
+
+**Providers**
+- `src/components/Providers.tsx` — `'use client'` wrapper; calls `useAuth()` at app root
+
+**Navigation**
+- `src/components/navigation/BottomNav.tsx` — 5-tab nav (Today/Week/Log/Insights/Profile); Log tab is a FAB; active state from `usePathname`; inline SVG icons; safe-area bottom padding
+- `src/components/navigation/TopBar.tsx` — fixed header 56px; title + left/right slots; `static` prop for flow positioning
+
+**App shell**
+- `src/app/layout.tsx` — root layout wraps body with `<Providers>`
+- `src/app/(app)/layout.tsx` — authenticated chrome: `<AuthGuard>` (status-based redirect) + `<BottomNav />`; pages render their own TopBar
+- `src/components/AuthGuard.tsx` — `'use client'`; reads `useUserStore.status`; shows spinner while loading, redirects to `/login` if unauthenticated
+- `src/lib/ai/client.ts` — client-side helper: `callAI(request)` → fetch('/api/ai') → `MealAnalysisServiceResult`
+
+**AI client**
+- `src/lib/ai/client.ts` — wraps POST to `/api/ai`; throws on error; used by `PhotoLogger` and `TextLogger`
+
+**Nutrition components** (`src/components/nutrition/`)
+- `MacroRings` — 3× `Ring` SVGs for protein / carbs / fat with macro color tokens
+- `CalorieSummary` — large calorie number, remaining/over label, `ProgressBar`
+- `DayStrip` — horizontal scroll strip of last 7 `DayTile`s
+- `DayTile` — single day button; active state = `bg-brand-500`; dot if has data
+- `MealSlot` — named meal slot (breakfast/lunch/dinner/snacks) with `FoodItemRow` list + "Add food" button
+- `FoodItemRow` — entry display row: name, macro summary, optional delete
+- `TrainingBanner` — training day card with adjusted calorie target
+- `NutritionStatCard` — label / value / unit / optional `ProgressBar` target comparison
+
+**Logging components** (`src/components/logging/`)
+- `LogMethodPicker` — three tap targets: photo / text / barcode
+- `PhotoLogger` — `<input capture="environment">` → base64 → `callAI` → `onResult`
+- `TextLogger` — textarea → `callAI` → `onResult`
+- `BarcodeLogger` — `react-zxing` `useZxing` hook → Open Food Facts API → `onResult`
+- `MealConfirmCard` — AI result review: item list, totals, slot `Chip` picker, confirm/discard
+
+**Onboarding components** (`src/components/onboarding/`)
+- `StepPersonal` — RHF + Zod: name, dateOfBirth, sex Chip selector
+- `StepBody` — RHF + Zod: heightCm, weightKg (coerce.number)
+- `StepGoal` — goal card picker (fat_loss / maintain / muscle_gain)
+- `StepActivity` — activity level card picker + weeklyTrainingDays `Slider`
+- `StepHealthConnect` — enable/skip Health Connect toggle
+
+**Sync components** (`src/components/sync/`)
+- `SyncButton` — calls `useHealthSync().startSync()`; disabled while busy
+- `SyncProgress` — reads `phase`, `progress`, `lastSyncAt`, `error` from `useHealthSync()`
+
+**Full app screens** (Milestone 5)
+- `src/app/(auth)/login/page.tsx` — functional: `signInWithGoogle()`, store `driveToken`, check profile, redirect to `/today` or `/onboarding`
+- `src/app/onboarding/page.tsx` — 5-step form; accumulates data; computes `bmr`/`tdee`/`targets` at end; calls `saveProfile()`; redirects to `/today`
+- `src/app/(app)/today/page.tsx` — `DayStrip`, `CalorieSummary`, `MacroRings`, `TrainingBanner` (if training day), 4× `MealSlot`; reads `useDayStore`/`useUserStore`; "Add food" navigates to `/log?slot=X`
+- `src/app/(app)/week/page.tsx` — 7-day averages grid of `NutritionStatCard`; reads `useWeekData()`
+- `src/app/(app)/log/page.tsx` — phase machine (pick→capture→confirm→saving); `Suspense` wrapper for `useSearchParams`; on confirm calls `useEntryActions().createEntry()`
+- `src/app/(app)/profile/page.tsx` — profile targets display, `SyncButton`/`SyncProgress`, sign-out `BottomSheet`
+
+**Health Connect sync pipeline** (`src/lib/healthSync/`) — Milestone 6
+- `errors.ts` — typed error classes: `DriveAuthError`, `DriveDownloadError`, `ParseError`, `PersistenceError`
+- `GoogleDriveClient.ts` — `findHealthConnectFile(token)` + `downloadZip(token, fileId)`; throws `DriveAuthError` on 401, `DriveDownloadError` on network/HTTP errors; no parsing logic
+- `HealthConnectParser.ts` — wraps `openHealthConnectZip` + `parseHealthConnect` from existing wearable lib; returns `WearableDayRecord[]`; always closes DB (in finally); throws `ParseError`; pure (no network, no Firestore)
+- `HealthSyncService.ts` — orchestrates full pipeline: find → download → parse → `wearableRecordsToDayActivities` → `dayRepo.setActivity()` per day → `profileRepo.setLastSyncAt()`; defines local `HealthSyncPhase` type for callbacks (no upward store import); retries once after `DriveAuthError` via `onTokenRefresh` callback; wraps Firestore errors as `PersistenceError`
+- `index.ts` — singleton `healthSyncService` (mirrors `lib/firestore/index.ts`); re-exports error classes and `HealthSyncPhase`
+- `__tests__/GoogleDriveClient.test.ts` — 11 tests: 401→`DriveAuthError`, non-401→`DriveDownloadError`, network failure, success, Authorization header, URL shape
+- `__tests__/HealthConnectParser.test.ts` — 6 tests: mocks wearable modules (avoids WASM in Jest); success, parse failure→`ParseError`, db always closed
+- `__tests__/HealthSyncService.test.ts` — 10 tests: phase sequence, `setActivity`/`setLastSyncAt` called, token refresh + retry, `DriveAuthError` if refresh returns null, all four error classes propagated correctly
+
+**Note on `lib/wearable/syncDrive.ts`:** This file is **legacy/reference-only** after M6. It is not called by the new sync path (`GoogleDriveClient` + `HealthConnectParser` + `HealthSyncService` replaces it). It is preserved unchanged because it was adapted from the Peri codebase. It can be deleted in a future cleanup pass once there is confidence the new pipeline covers all its functionality.
+
+**PWA assets**
+- `public/manifest.json` — start_url `/today`, display `standalone`, theme `#1aa8a1`
+- `public/icons/icon-192.svg` — placeholder teal tile with "FT" logotype
+- `public/icons/icon-512.svg` — same, maskable-safe
+
+**Cleanup**
+- Deleted `src/dataconnect-generated/` — unrelated Firebase Data Connect boilerplate
+- Removed `"@dataconnect/generated"` from `package.json`
 
 ---
 
@@ -313,56 +435,16 @@ Nothing currently in progress.
 
 ### ⬜ Not Started
 
-**AI service**
-- `src/lib/ai/service.ts` — generic AI dispatcher
-- `src/lib/ai/prompts/mealAnalysis.ts` — system prompt + mapper to domain `FoodItem[]`
-- `src/app/api/ai/route.ts` — server API route (Anthropic key server-side only)
-
-**Zustand stores**
-- `src/store/useUserStore.ts`
-- `src/store/useDayStore.ts`
-- `src/store/useSyncStore.ts`
-
-**Hooks**
-- `src/hooks/useAuth.ts`
-- `src/hooks/useProfile.ts`
-- `src/hooks/useDayData.ts`
-- `src/hooks/useHealthSync.ts`
-
-**UI primitives** (`src/components/ui/`)
-- Button, Card, Input, Chip, Badge, Avatar, ProgressBar, Ring, Slider, BottomSheet, Dialog, Spinner, Toast, Stepper
-
-**Navigation**
-- `src/components/navigation/BottomNav.tsx`
-- `src/components/navigation/TopBar.tsx`
-
-**App screens**
-- `/login` — Google Sign-In
-- `/onboarding` — multi-step (Personal → Body → Goal → Activity → Health Connect)
-- `/today` — daily summary with week strip, macro rings, meal slots
-- `/week` — weekly overview
-- `/log` — meal logging flow (photo / text / barcode)
-- `/insights` — placeholder
-- `/profile` — profile editing + sync controls
-
-**App-specific components**
-- `MacroRings`, `CalorieSummary`, `DayStrip`, `DayTile`, `MealSlot`, `FoodItemRow`, `MealConfirmCard`, `TrainingBanner`, `NutritionStatCard`
-- `LogMethodPicker`, `PhotoLogger`, `TextLogger`, `BarcodeLogger`
-- `StepPersonal`, `StepBody`, `StepGoal`, `StepActivity`, `StepHealthConnect`
-- `SyncButton`, `SyncProgress`
-
-**PWA assets**
-- `public/manifest.json`
-- `public/icons/` (192px, 512px, maskable)
-
 **Firebase project config**
-- Firestore security rules deployed
-- Firestore composite indexes created
+- Firestore security rules: `firestore.rules` written — **deploy with `firebase deploy --only firestore:rules`**
+- Firestore composite indexes: `firestore.indexes.json` written — **deploy with `firebase deploy --only firestore:indexes`**
 - Firebase Storage rules deployed
 
 **Deployment**
 - Netlify site created and linked to GitHub repo
-- Environment variables set in Netlify dashboard
+- Environment variables set in Netlify dashboard (`ANTHROPIC_API_KEY` required for `/api/ai`)
+
+**Health Connect / Drive sync** (Milestone 6 — see below)
 
 ---
 
@@ -378,11 +460,13 @@ None currently open.
 
 1. **`outputFileTracingRoot` in `next.config.ts` is an absolute path** (`/Users/piovella/Documents/AI projects/FoodTrack`). Will break on other machines. Acceptable for single-developer project; replace with `path.resolve(__dirname)` if CI is added.
 
-2. **No Firestore indexes deployed yet.** Composite indexes documented in `schema.ts` must be created in the Firebase console (or via `firestore.indexes.json`) before the week strip range query and slot queries will work at scale. Will surface as a Firestore console warning on first compound query.
+2. **Firestore indexes not yet deployed.** `firestore.indexes.json` is written. Run `firebase deploy --only firestore:indexes` before the week strip range query and slot queries will work at scale.
 
-3. **No Firestore security rules deployed yet.** The path-based rule in `schema.ts` must be deployed to Firebase before the app is accessible to real users. Milestone 3 prerequisite.
+3. **Firestore security rules not yet deployed.** `firestore.rules` is written. Run `firebase deploy --only firestore:rules` before the app is accessible to real users. Required before Milestone 4 testing.
 
-4. **Google OAuth token (Drive access) expires in ~1 hour.** The token returned by `signInWithGoogle()` is stored in Zustand (runtime only). If a user tries to sync after an hour without re-authenticating, the Drive call will return 401. A re-authentication prompt is needed in the sync flow. Deferred to Milestone 4 (Health Connect sync UI).
+3a. **`ANTHROPIC_API_KEY` not yet set.** Placeholder exists in `.env.local`. Must be populated before `/api/ai` route will function. Also set in Netlify dashboard before deploying.
+
+4. **Google OAuth token (Drive access) expires in ~1 hour.** The token returned by `signInWithGoogle()` is stored in Zustand (runtime only). If a user tries to sync after an hour without re-authenticating, the Drive call will return 401. `HealthSyncService` (Milestone 6) will detect `DriveAuthError`, re-trigger `signInWithGoogle()`, and retry once.
 
 5. **Mock `DayRepository.recompute()` does not query entries** — it preserves whatever totals were seeded. Full recompute logic is only tested via the Firestore implementation. Emulator-based integration tests are deferred but recommended before production.
 
@@ -390,24 +474,42 @@ None currently open.
 
 ## Next Milestone
 
-**Milestone 3: AI service + Zustand stores + hooks**
+**Milestone 7: Production readiness**
+
+Scope: deployment, verification, and release. No new features.
 
 Order of work:
-1. `src/lib/ai/prompts/mealAnalysis.ts` — system prompt + response-to-domain mapper
-2. `src/lib/ai/service.ts` — generic AI dispatcher (capability enum → prompt selector)
-3. `src/app/api/ai/route.ts` — server API route; validates `AIRequest`, calls Anthropic SDK, returns Zod-validated response
-4. `src/store/useUserStore.ts` — auth user + profile; persists `driveToken` in memory (never localStorage)
-5. `src/store/useDayStore.ts` — active date, entries for that date, daily totals
-6. `src/store/useSyncStore.ts` — Health Connect sync state + step progress
-7. `src/hooks/useAuth.ts` — subscribes to Firebase auth, populates `useUserStore`
-8. `src/hooks/useProfile.ts` — loads profile from `profileRepository`, writes on onboarding complete
-9. `src/hooks/useDayData.ts` — loads entries + day aggregate for active date from `entryRepository` / `dayRepository`
-10. Tests for AI response validation (Zod parse + mapper)
-11. Deploy Firestore security rules
-12. Deploy Firestore composite indexes (`firestore.indexes.json`)
-13. Update `CLAUDE_CONTEXT.md`
+1. Fix `outputFileTracingRoot` absolute path in `next.config.ts` (replace with `path.resolve(__dirname)`)
+2. Deploy Firestore security rules: `firebase deploy --only firestore:rules`
+3. Deploy Firestore composite indexes: `firebase deploy --only firestore:indexes`
+4. Populate `ANTHROPIC_API_KEY` in `.env.local`; set all env vars in Netlify dashboard
+5. Deploy to Netlify and verify the build succeeds (check WASM Content-Type header for sql-wasm.wasm)
+6. PWA install test: install to Android home screen; confirm standalone display; verify icons load
+7. Production smoke test: sign in → onboarding → log a meal via photo → log via text → check week screen → sync Health Connect (if Drive export available) → sign out → sign in again (profile persists)
+8. Performance review: Lighthouse mobile score; bundle-size check; verify sql-wasm.wasm is not included in the main JS bundle
+9. Accessibility review: keyboard navigation through onboarding and log flow; screen-reader label audit
+10. Final cleanup: remove any `console.log` or placeholder comments; confirm no `.env.local` secrets in git
+11. Decide whether to delete `src/lib/wearable/syncDrive.ts` (legacy/reference-only after M6)
+12. Update `CLAUDE_CONTEXT.md` with release notes and deployed URL
 
-**Note:** Do not begin Milestone 4 (UI primitives + screens) until Milestone 3 stores and hooks are complete and verified.
+---
+
+**Milestone 7: Production readiness**
+
+Scope: deployment, verification, and release. No new features.
+
+Order of work:
+1. Set Netlify environment variables: `ANTHROPIC_API_KEY`, Firebase config vars
+2. Deploy Firestore security rules: `firebase deploy --only firestore:rules`
+3. Deploy Firestore composite indexes: `firebase deploy --only firestore:indexes`
+4. Deploy to Netlify and verify the build succeeds
+5. PWA install test: install to Android home screen, confirm offline splash, verify `manifest.json` icons
+6. Production smoke test: sign in → onboarding → log a meal via photo → log a meal via text → check week screen → sign out → sign in again (profile persists)
+7. Performance review: Lighthouse mobile score; identify any obvious bundle-size issues
+8. Accessibility review: keyboard navigation through onboarding and log flow; screen-reader label audit
+9. Fix `outputFileTracingRoot` absolute path in `next.config.ts` (replace with `path.resolve(__dirname)`)
+10. Final cleanup: remove any `console.log` or placeholder comments; confirm no `.env.local` secrets in git
+11. Update `CLAUDE_CONTEXT.md` with release notes and deployed URL
 
 ---
 
@@ -461,6 +563,54 @@ Order of work:
 **Decision:** `IDayRepository.setActivity(uid, date, activity, baselineTargets?)` accepts optional baseline targets. Adjusted targets are computed at write time and stored in the day document.  
 **Alternatives considered:** Compute adjusted targets lazily in the UI (no storage, always derived); store raw activity only and compute in a separate step.  
 **Why this:** The wearable sync flow already has the profile in scope, so passing targets costs nothing. Storing the result means the UI reads a single pre-computed value rather than re-running adjustment logic on every render.
+
+### [2026-06-28] Provider-agnostic AI layer
+**Decision:** `AIService` depends on `IAIProvider`, not on the Anthropic SDK directly. `AnthropicProvider` implements the interface. Future providers (OpenAI, Gemini, local models) require only a new implementation file — no changes to `AIService`, prompt modules, or the API route.  
+**Alternatives considered:** Coupling `AIService` directly to `@anthropic-ai/sdk` (simpler, less indirection).  
+**Why this:** Model vendor changes are a real operational risk (pricing, capability gaps, rate limits). The interface costs two files and zero runtime overhead; the coupling would cost a refactor touching every capability.
+
+### [2026-06-28] `useHealthSync` as contract-only stub
+**Decision:** `useHealthSync` exposes the full `{ phase, progress, lastSyncAt, error, startSync }` contract but `startSync` only sets an error string. Drive download, sql.js parsing, and `DayRepository.setActivity` wiring are deferred to Milestone 4.  
+**Why this:** The sync flow requires the sync UI (progress feedback, error recovery, Drive token refresh prompt). Building it without the UI would produce untestable, unreachable code. The stub gives Milestone 4 a clean, tested contract to implement against without any rework to the store shape.
+
+### [2026-06-28] Health Connect sync split into its own milestone (M6)
+**Decision:** Health Connect / Google Drive integration (Drive download, SQL.js parse, token refresh, activity merge, error handling) is Milestone 6. Milestone 5 covers all user-facing UI. The Profile screen calls `useHealthSync()` and renders sync state; it does not own the implementation.  
+**Alternatives considered:** Including sync in Milestone 5 alongside the full UI (original plan).  
+**Why this:** The sync pipeline has distinct failure modes (401 token expiry, ZIP parse errors, network timeouts) that need careful error handling and UI feedback. Building it at the same time as every other screen adds test surface that is hard to isolate. The `useHealthSync` contract (already a stub with the right shape) gives M5 a clean seam — the Profile screen is fully buildable and testable without Drive being real. M6 then targets only the sync pipeline with focused scope.
+
+### [2026-06-28] (app) route group for shared authenticated chrome
+**Decision:** Main app screens (`/today`, `/week`, `/log`, `/insights`, `/profile`) live under `src/app/(app)/` with a shared `layout.tsx` that renders `<BottomNav />`. Login and onboarding are outside this group and are chrome-free.  
+**Alternatives considered:** Conditional BottomNav in the root layout based on `usePathname` (simpler but adds runtime branching in a Server Component; requires client boundary at the layout level).  
+**Why this:** Route groups are the App Router's intended mechanism for this pattern. The (app) layout stays a Server Component — only `BottomNav` (which needs `usePathname`) is a client component. No conditional logic at the layout level.
+
+### [2026-06-28] Deleted src/dataconnect-generated/
+**Decision:** Removed `src/dataconnect-generated/` directory and `"@dataconnect/generated"` from `package.json`.  
+**Why this:** Firebase Data Connect auto-generated boilerplate from a movie-reviews tutorial, created during initial Firebase CLI setup. Nothing in FoodTrack imported it. Leaving it caused noise in `find src -type f` output and an orphaned package.json entry pointing to a local file path.
+
+### [2026-06-28] cn() utility in src/lib/utils.ts
+**Decision:** Added `cn(...)` helper (clsx + tailwind-merge) to `src/lib/utils.ts`. All components import from here.  
+**Why this:** Both `clsx` and `tailwind-merge` were already installed. `cn` is the standard pattern for conditional + conflict-safe Tailwind class merging. Centralising it means components never duplicate the merge call and callers can safely pass arbitrary `className` overrides.
+
+### [2026-06-28] Inline SVG icons in BottomNav (no icon library)
+**Decision:** Nav icons are small inline SVGs defined directly in `BottomNav.tsx`. No icon package installed.  
+**Alternatives considered:** `lucide-react` or `@heroicons/react` (not in the original package.json).  
+**Why this:** Only 5 icons are needed for navigation. Adding a full icon library for 5 paths is unnecessary dependency weight for a PWA. If Milestone 5 needs more icons (e.g., camera, barcode, checkmark), a library can be added then with clear justification.
+
+### [2026-06-28] ARCHITECTURE.md as permanent system-design document
+**Decision:** Created `ARCHITECTURE.md` in the project root as a living architectural reference. `CLAUDE_CONTEXT.md` handles milestone progress; `ARCHITECTURE.md` handles system design.
+**Why this:** CLAUDE_CONTEXT.md grows with each milestone and becomes hard to scan for architectural rules. A separate permanent document keeps design decisions stable and easy to reference in future sessions.
+
+### [2026-06-28] AuthStatus in useUserStore prevents flash of unauthenticated content
+**Decision:** Added `status: 'loading' | 'authenticated' | 'unauthenticated'` to `useUserStore`. `useAuth` sets `status` after Firebase auth resolves. `AuthGuard` waits for `status !== 'loading'` before routing.
+**Why this:** Firebase auth state restores asynchronously from IndexedDB. Without a loading state, the guard incorrectly redirects to `/login` for ~200ms on every page load, causing a visible flash and navigation churn.
+
+### [2026-06-28] Login page calls profileRepository directly for bootstrap routing
+**Decision:** The login page calls `profileRepository.get(user.uid)` directly (not via `useProfile`) to decide whether to redirect to `/today` or `/onboarding` immediately after sign-in.
+**Why this:** `useProfile` loads lazily on hook mount and doesn't expose the profile immediately. The login page needs the result synchronously within the sign-in handler before any re-render. This is the one permitted exception to the "hooks call repositories, not components" rule — justified because it's a one-time bootstrap check, not a recurring data access pattern.
+
+### [2026-06-28] Log page wrapped in Suspense for useSearchParams
+**Decision:** `LogPage` exports a `Suspense`-wrapped `LogContent` component because `useSearchParams()` requires a Suspense boundary in Next.js App Router.
+**Why this:** Next.js throws a build-time error if `useSearchParams` is used outside a Suspense boundary in a page that is statically generated. The wrapper prevents this with zero behaviour change.
 
 ### [2025-06-28] SWC for Jest instead of ts-jest
 **Decision:** `@swc/jest` for test transforms.  
