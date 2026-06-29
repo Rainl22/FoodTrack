@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import { TopBar } from '@/components/navigation/TopBar';
@@ -14,8 +14,10 @@ import {
 } from '@/components/logging';
 import { useEntryActions } from '@/hooks/useEntryActions';
 import { useDayStore } from '@/store/useDayStore';
+import { useUserStore } from '@/store/useUserStore';
+import { entryRepository } from '@/lib/firestore';
 import type { MealAnalysisServiceResult } from '@/lib/ai/service';
-import type { MealSlot, BarcodeProduct } from '@/types';
+import type { MealSlot, BarcodeProduct, Entry } from '@/types';
 
 type LogPhase = 'pick' | 'capture' | 'confirm' | 'saving';
 type LogMethod = 'photo' | 'text' | 'barcode';
@@ -24,14 +26,37 @@ function LogContent() {
   const router        = useRouter();
   const searchParams  = useSearchParams();
   const activeDate    = useDayStore((s) => s.activeDate);
-  const { createEntry } = useEntryActions();
+  const uid           = useUserStore((s) => s.user?.uid);
+  const { createEntry, updateEntry } = useEntryActions();
 
   const preselectedSlot = searchParams.get('slot') as MealSlot | null;
+  const editId          = searchParams.get('edit');
 
-  const [phase, setPhase]   = useState<LogPhase>('pick');
-  const [method, setMethod] = useState<LogMethod | null>(null);
-  const [result, setResult] = useState<MealAnalysisServiceResult | null>(null);
-  const [error, setError]   = useState<string | null>(null);
+  const [phase, setPhase]               = useState<LogPhase>('pick');
+  const [method, setMethod]             = useState<LogMethod | null>(null);
+  const [result, setResult]             = useState<MealAnalysisServiceResult | null>(null);
+  const [editingEntry, setEditingEntry] = useState<Entry | null>(null);
+  const [error, setError]               = useState<string | null>(null);
+
+  // Load existing entry when in edit mode
+  useEffect(() => {
+    if (!editId || !uid) return;
+    entryRepository.getById(uid, editId).then((entry) => {
+      if (!entry) { setError('Entry not found.'); return; }
+      setEditingEntry(entry);
+      setResult({
+        name:   entry.name,
+        items:  entry.items,
+        aiMeta: entry.aiMeta ?? {
+          model:         'manual',
+          confidence:    'high',
+          notes:         '',
+          handReference: false,
+        },
+      });
+      setPhase('confirm');
+    }).catch(() => setError('Could not load entry for editing.'));
+  }, [editId, uid]);
 
   function handlePickMethod(m: LogMethod) {
     setMethod(m);
@@ -79,16 +104,24 @@ function LogContent() {
     setPhase('saving');
     setError(null);
     try {
-      await createEntry({
-        type:        'meal',
-        slot:        slot ?? undefined,
-        name:        result.name,
-        date:        activeDate,
-        timestamp:   new Date().toISOString(),
-        items:       result.items,
-        inputMethod: method === 'barcode' ? 'barcode' : method === 'photo' ? 'photo' : 'text',
-        aiMeta:      result.aiMeta,
-      });
+      if (editingEntry) {
+        await updateEntry(editingEntry.id, editingEntry.date, {
+          name:  result.name,
+          slot:  slot ?? editingEntry.slot,
+          items: result.items,
+        });
+      } else {
+        await createEntry({
+          type:        'meal',
+          slot:        slot ?? undefined,
+          name:        result.name,
+          date:        activeDate,
+          timestamp:   new Date().toISOString(),
+          items:       result.items,
+          inputMethod: method === 'barcode' ? 'barcode' : method === 'photo' ? 'photo' : 'text',
+          aiMeta:      result.aiMeta,
+        });
+      }
       router.replace('/today');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save entry. Please try again.');
@@ -97,6 +130,10 @@ function LogContent() {
   }
 
   function handleBack() {
+    if (editingEntry) {
+      router.replace('/today');
+      return;
+    }
     if (phase === 'confirm' || phase === 'capture') {
       setPhase('pick');
       setMethod(null);
@@ -105,6 +142,7 @@ function LogContent() {
   }
 
   const pageTitle =
+    editingEntry    ? 'Edit meal' :
     phase === 'pick'    ? 'Log Meal' :
     phase === 'capture' ? (method === 'photo' ? 'Take a photo' : method === 'text' ? 'Describe it' : 'Scan barcode') :
     phase === 'confirm' ? 'Confirm meal' :
@@ -119,7 +157,7 @@ function LogContent() {
             <Toast severity="error" message={error} onDismiss={() => setError(null)} className="mb-4" />
           )}
 
-          {phase === 'pick' && (
+          {phase === 'pick' && !editingEntry && (
             <LogMethodPicker onSelect={handlePickMethod} />
           )}
 
@@ -153,7 +191,8 @@ function LogContent() {
               onConfirm={handleConfirm}
               onDiscard={handleBack}
               isSaving={phase === 'saving'}
-              initialSlot={preselectedSlot ?? undefined}
+              initialSlot={editingEntry?.slot ?? preselectedSlot ?? undefined}
+              editMode={!!editingEntry}
             />
           )}
         </div>

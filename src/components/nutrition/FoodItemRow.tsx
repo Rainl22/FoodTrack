@@ -5,11 +5,12 @@ import type { Entry } from '@/types';
 
 interface FoodItemRowProps {
   entry:      Entry;
+  onEdit?:    () => void;
   onDelete?:  () => void;
   className?: string;
 }
 
-export function FoodItemRow({ entry, onDelete, className }: FoodItemRowProps) {
+export function FoodItemRow({ entry, onEdit, onDelete, className }: FoodItemRowProps) {
   return (
     <div className={cn('flex items-center gap-3 py-2.5', className)}>
       <div className="flex-1 min-w-0">
@@ -21,6 +22,18 @@ export function FoodItemRow({ entry, onDelete, className }: FoodItemRowProps) {
           {' · '}F {Math.round(entry.totalFatG)}g
         </p>
       </div>
+      {onEdit && (
+        <button
+          type="button"
+          onClick={onEdit}
+          aria-label={`Edit ${entry.name}`}
+          className="shrink-0 p-1.5 text-text-disabled hover:text-brand-500 transition-colors rounded"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M11.5 2.5a1.414 1.414 0 012 2L5 13H2v-3L11.5 2.5z" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+      )}
       {onDelete && (
         <button
           type="button"

@@ -3,7 +3,7 @@
 import { useCallback } from 'react';
 import { useSyncStore, type SyncPhase } from '@/store/useSyncStore';
 import { useUserStore } from '@/store/useUserStore';
-import { signInWithGoogle } from '@/lib/firebase/auth';
+import { requestDriveAccess } from '@/lib/firebase/auth';
 import {
   healthSyncService,
   DriveAuthError,
@@ -23,7 +23,7 @@ export interface UseHealthSyncResult {
 
 function toUserMessage(err: unknown): string {
   if (err instanceof DriveAuthError) {
-    return 'Drive access expired. Please sign in again and retry.';
+    return 'Drive access expired. Please approve Drive access when prompted and retry.';
   }
   if (err instanceof DriveDownloadError) {
     return `Could not download Health Connect export: ${err.message}`;
@@ -38,7 +38,7 @@ function toUserMessage(err: unknown): string {
 }
 
 function toSyncPhase(phase: HealthSyncPhase): SyncPhase {
-  return phase; // values are identical; the cast is the mapping
+  return phase;
 }
 
 export function useHealthSync(): UseHealthSyncResult {
@@ -62,9 +62,23 @@ export function useHealthSync(): UseHealthSyncResult {
       setError('Sign in to use Health Connect sync.');
       return;
     }
-    if (!driveToken) {
-      setError('Drive access not granted. Please sign in again.');
-      return;
+
+    // Request Drive access on demand — only when the user initiates sync.
+    // This keeps drive.readonly out of the initial sign-in flow so the
+    // "unverified app" consent screen never appears for regular users.
+    let token = driveToken;
+    if (!token) {
+      try {
+        token = await requestDriveAccess();
+      } catch {
+        setError('Drive access is required for Health Connect sync. Please approve the request and try again.');
+        return;
+      }
+      if (!token) {
+        setError('Drive access was not granted. Health Connect sync requires read access to Google Drive.');
+        return;
+      }
+      setDriveToken(token);
     }
 
     reset();
@@ -73,10 +87,10 @@ export function useHealthSync(): UseHealthSyncResult {
     try {
       await healthSyncService.sync({
         uid:        user.uid,
-        driveToken,
+        driveToken: token,
         profile,
         onTokenRefresh: async () => {
-          const { driveToken: newToken } = await signInWithGoogle();
+          const newToken = await requestDriveAccess();
           if (newToken) setDriveToken(newToken);
           return newToken;
         },

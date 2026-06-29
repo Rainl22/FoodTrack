@@ -5,11 +5,9 @@ import { useRouter } from 'next/navigation';
 import { Card, Button, Spinner } from '@/components/ui';
 import { signInWithGoogle } from '@/lib/firebase/auth';
 import { profileRepository } from '@/lib/firestore';
-import { useUserStore } from '@/store/useUserStore';
 
 export default function LoginPage() {
   const router       = useRouter();
-  const setDriveToken = useUserStore((s) => s.setDriveToken);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [error, setError]             = useState<string | null>(null);
 
@@ -17,8 +15,7 @@ export default function LoginPage() {
     setIsSigningIn(true);
     setError(null);
     try {
-      const { user, driveToken } = await signInWithGoogle();
-      if (driveToken) setDriveToken(driveToken);
+      const { user } = await signInWithGoogle();
       const profile = await profileRepository.get(user.uid);
       if (profile?.onboardingComplete) {
         router.replace('/today');

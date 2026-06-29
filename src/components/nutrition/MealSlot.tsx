@@ -9,6 +9,7 @@ interface MealSlotProps {
   slot:         MealSlotType;
   entries:      Entry[];
   onAdd:        (slot: MealSlotType) => void;
+  onEdit?:      (entryId: string, date: string) => void;
   onDelete?:    (entryId: string, date: string) => void;
   className?:   string;
 }
@@ -20,7 +21,7 @@ const SLOT_LABELS: Record<MealSlotType, string> = {
   snacks:    'Snacks',
 };
 
-export function MealSlot({ slot, entries, onAdd, onDelete, className }: MealSlotProps) {
+export function MealSlot({ slot, entries, onAdd, onEdit, onDelete, className }: MealSlotProps) {
   const slotCalories = entries.reduce((sum, e) => sum + e.totalCalories, 0);
 
   return (
@@ -42,6 +43,7 @@ export function MealSlot({ slot, entries, onAdd, onDelete, className }: MealSlot
             <FoodItemRow
               key={entry.id}
               entry={entry}
+              onEdit={onEdit ? () => onEdit(entry.id, entry.date) : undefined}
               onDelete={onDelete ? () => onDelete(entry.id, entry.date) : undefined}
             />
           ))}

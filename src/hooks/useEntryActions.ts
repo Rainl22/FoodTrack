@@ -5,7 +5,7 @@ import { entryRepository, dayRepository } from '@/lib/firestore';
 import { useUserStore } from '@/store/useUserStore';
 import { useDayStore } from '@/store/useDayStore';
 import type { CreateEntryInput } from '@/lib/validation/nutrition';
-import type { Entry } from '@/types';
+import type { Entry, FoodItem } from '@/types';
 
 export function useEntryActions() {
   const uid       = useUserStore((s) => s.user?.uid);
@@ -46,5 +46,26 @@ export function useEntryActions() {
     [uid, activeDate, setEntries, setDay],
   );
 
-  return { createEntry, deleteEntry };
+  const updateEntry = useCallback(
+    async (
+      entryId:   string,
+      entryDate: string,
+      patch: { name?: string; slot?: Entry['slot']; items?: FoodItem[] },
+    ): Promise<Entry> => {
+      if (!uid) throw new Error('Not authenticated');
+      const entry = await entryRepository.update(uid, entryId, patch);
+      if (entryDate === activeDate || entry.date === activeDate) {
+        const [entries, day] = await Promise.all([
+          entryRepository.list(uid, { date: activeDate }),
+          dayRepository.get(uid, activeDate),
+        ]);
+        setEntries(entries);
+        setDay(day);
+      }
+      return entry;
+    },
+    [uid, activeDate, setEntries, setDay],
+  );
+
+  return { createEntry, deleteEntry, updateEntry };
 }

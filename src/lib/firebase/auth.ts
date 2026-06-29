@@ -9,37 +9,31 @@ import {
 } from 'firebase/auth';
 import firebaseApp from './app';
 
-// Scopes requested at sign-in. Drive readonly is needed for Health Connect sync.
-const GOOGLE_SCOPES = [
-  'https://www.googleapis.com/auth/drive.readonly',
-];
-
-// Lazy singleton — getAuth calls app.getProvider() which fails if firebaseApp
-// is not a real initialized app. By deferring to first use we avoid running
-// this during Next.js SSR / static prerender of server-rendered pages.
+// Lazy singleton — deferred to avoid calling getAuth during Next.js SSR/prerender.
 let _auth: Auth | null = null;
 function auth(): Auth {
   if (!_auth) _auth = getAuth(firebaseApp);
   return _auth;
 }
 
-function createGoogleProvider() {
+// Basic sign-in: email + profile only. Does NOT request Drive scope so users
+// never see the "app not verified" consent screen during normal sign-in.
+export async function signInWithGoogle(): Promise<{ user: User }> {
   const provider = new GoogleAuthProvider();
-  GOOGLE_SCOPES.forEach(scope => provider.addScope(scope));
-  return provider;
+  const credential = await signInWithPopup(auth(), provider);
+  return { user: credential.user };
 }
 
-export async function signInWithGoogle(): Promise<{
-  user: User;
-  driveToken: string | null;
-}> {
-  const provider = createGoogleProvider();
+// Requests drive.readonly incrementally — called only when the user initiates
+// a Health Connect sync. A second consent popup appears, but only for that
+// feature. drive.readonly is a sensitive scope that triggers Google's
+// "unverified app" warning, so it must not be requested at initial sign-in.
+export async function requestDriveAccess(): Promise<string | null> {
+  const provider = new GoogleAuthProvider();
+  provider.addScope('https://www.googleapis.com/auth/drive.readonly');
   const credential = await signInWithPopup(auth(), provider);
   const googleCredential = GoogleAuthProvider.credentialFromResult(credential);
-  return {
-    user: credential.user,
-    driveToken: googleCredential?.accessToken ?? null,
-  };
+  return googleCredential?.accessToken ?? null;
 }
 
 export async function signOut(): Promise<void> {

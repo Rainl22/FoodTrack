@@ -43,10 +43,14 @@ export default function TodayPage() {
   useProfile();
   useDayData();
   const { days } = useWeekData();
-  const { deleteEntry } = useEntryActions();
+  const { deleteEntry } = useEntryActions(); // updateEntry not needed here — edit navigates to /log
 
   function handleAddEntry(slot: MealSlotType) {
     router.push(`/log?slot=${slot}`);
+  }
+
+  function handleEditEntry(entryId: string) {
+    router.push(`/log?edit=${entryId}`);
   }
 
   const targets = day?.adjustedTargets
@@ -105,6 +109,7 @@ export default function TodayPage() {
                 slot={slot}
                 entries={entries.filter((e) => e.slot === slot)}
                 onAdd={handleAddEntry}
+                onEdit={(entryId) => handleEditEntry(entryId)}
                 onDelete={(entryId, entryDate) => {
                   deleteEntry(entryId, entryDate).catch(() => {});
                 }}
