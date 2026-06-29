@@ -1,16 +1,47 @@
-import { initializeApp, getApps, getApp } from 'firebase/app';
+import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
 
-const firebaseConfig = {
-  apiKey:            process.env.NEXT_PUBLIC_FIREBASE_API_KEY!,
-  authDomain:        process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN!,
-  projectId:         process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID!,
-  storageBucket:     process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET!,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID!,
-  appId:             process.env.NEXT_PUBLIC_FIREBASE_APP_ID!,
-  measurementId:     process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
-};
+// Keys that must be present at build time and at runtime.
+// measurementId is optional (Analytics only).
+const REQUIRED_ENV_VARS = [
+  'NEXT_PUBLIC_FIREBASE_API_KEY',
+  'NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN',
+  'NEXT_PUBLIC_FIREBASE_PROJECT_ID',
+  'NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET',
+  'NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID',
+  'NEXT_PUBLIC_FIREBASE_APP_ID',
+] as const;
 
-// Singleton: safe for Next.js hot-reload — never initializes twice
-const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+function buildConfig() {
+  const missing = REQUIRED_ENV_VARS.filter(k => !process.env[k]);
+  if (missing.length > 0) {
+    throw new Error(
+      `Firebase initialization failed — missing required environment variables:\n` +
+      missing.map(k => `  ${k}`).join('\n') +
+      '\n\nFor local development: add them to .env.local.' +
+      '\nFor Netlify: add them under Site configuration → Environment variables.',
+    );
+  }
+  return {
+    apiKey:            process.env.NEXT_PUBLIC_FIREBASE_API_KEY!,
+    authDomain:        process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN!,
+    projectId:         process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID!,
+    storageBucket:     process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET!,
+    messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID!,
+    appId:             process.env.NEXT_PUBLIC_FIREBASE_APP_ID!,
+    measurementId:     process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
+  };
+}
 
+function initFirebase(): FirebaseApp {
+  // During Next.js SSR / static prerender, this module is imported but Firebase
+  // is never actually called (auth subscription is inside useEffect; Firestore
+  // calls only happen in hooks). Skip initialization on the server to prevent
+  // spurious errors when env vars are available only at runtime.
+  if (typeof window === 'undefined') return {} as FirebaseApp;
+
+  if (getApps().length > 0) return getApp();
+  return initializeApp(buildConfig());
+}
+
+const firebaseApp = initFirebase();
 export default firebaseApp;

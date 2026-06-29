@@ -3,13 +3,14 @@ import {
   persistentLocalCache,
   persistentMultipleTabManager,
   getFirestore,
+  type Firestore,
 } from 'firebase/firestore';
 import firebaseApp from './app';
 
-// Initialise Firestore with persistent IndexedDB cache for offline support.
-// Must be called before any other Firestore operation.
-// Safe to call multiple times — Firebase guards against double-init.
-function createFirestore() {
+// Initialise Firestore with persistent IndexedDB cache (offline support).
+// Only runs in the browser — persistentLocalCache requires IndexedDB.
+function createFirestore(): Firestore {
+  if (typeof window === 'undefined') return {} as Firestore;
   try {
     return initializeFirestore(firebaseApp, {
       localCache: persistentLocalCache({
@@ -17,7 +18,7 @@ function createFirestore() {
       }),
     });
   } catch {
-    // Already initialized (e.g. hot-reload) — return existing instance
+    // Already initialized (e.g. hot-reload)
     return getFirestore(firebaseApp);
   }
 }
